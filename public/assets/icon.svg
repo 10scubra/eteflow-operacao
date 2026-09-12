@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ETEFlow">
+  <rect width="512" height="512" rx="112" fill="#07111f"/>
+  <path d="M96 300c55-48 101-48 156 0s101 48 164 0v75c-63 48-109 48-164 0s-101-48-156 0z" fill="#18a8ff"/>
+  <path d="M128 142h256v72H128z" fill="#15d39a"/>
+  <path d="M128 238h168v44H128z" fill="#e8f4ff"/>
+</svg>

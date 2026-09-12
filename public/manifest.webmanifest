@@ -1,0 +1,20 @@
+{
+  "name": "ETEFlow Operação",
+  "short_name": "ETEFlow",
+  "description": "Gestão operacional de turnos, leituras, ações e evidências da ETE.",
+  "lang": "pt-BR",
+  "start_url": "/operacao",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
