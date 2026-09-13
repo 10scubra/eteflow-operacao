@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Aspersion;
+use App\Models\AspersionPoint;
 use App\Models\EquipmentStatus;
 use App\Models\Occurrence;
 use App\Models\OperationalAction;
@@ -11,6 +12,7 @@ use App\Models\User;
 use App\Services\DailyOperationService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class EteFlowSeeder extends Seeder
 {
@@ -114,9 +116,18 @@ class EteFlowSeeder extends Seeder
             );
         }
 
-        Aspersion::query()->firstOrCreate(
+        $aspersionPoint = AspersionPoint::query()->firstOrCreate(
+            ['name' => 'Bomba de aspersão 01'],
+            ['location' => 'Painel elétrico da aspersão', 'public_token' => Str::random(48), 'is_active' => true],
+        );
+        $demoAspersion = Aspersion::query()->firstOrCreate(
             ['shift_id' => $shift->id, 'area' => 'Setor Norte', 'status' => 'active'],
             ['line' => 'Linha 02', 'initial_reading' => 1250, 'notes' => 'Aspersão demonstrativa do turno.', 'started_by' => $operator1->id, 'started_at' => now()->subMinutes(50)],
         );
+        $demoAspersion->update([
+            'aspersion_point_id' => $aspersionPoint->id,
+            'initial_flow_rate' => 18.4,
+            'initial_active_cannons' => 3,
+        ]);
     }
 }

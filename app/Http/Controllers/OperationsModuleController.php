@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ActionEvidence;
 use App\Models\Aspersion;
+use App\Models\AspersionPoint;
 use App\Models\EquipmentStatus;
 use App\Models\Occurrence;
 use App\Models\OperationalAction;
@@ -226,11 +227,53 @@ class OperationsModuleController extends Controller
     public function aspersions(Request $request, DailyOperationService $operations): View
     {
         $shift = $operations->ensure();
-
-        return view('operation.module', $this->baseData('aspersion', $shift) + [
+        $data = [
             'aspersions' => Aspersion::query()->where('shift_id', $shift->id)
-                ->with(['startedBy', 'endedBy'])->latest('started_at')->get(),
-        ]);
+                ->with(['point', 'startedBy', 'endedBy'])->latest('started_at')->get(),
+            'aspersionPoints' => collect(),
+            'aspersionHistory' => null,
+            'aspersionSummary' => null,
+            'aspersionFilters' => [],
+        ];
+
+        if ($request->user()->role === 'master') {
+            $filters = $request->validate([
+                'from' => ['nullable', 'date'],
+                'to' => ['nullable', 'date', 'after_or_equal:from'],
+                'shift_type' => ['nullable', 'in:day,night'],
+                'point_id' => ['nullable', 'integer', 'exists:aspersion_points,id'],
+            ]);
+            $historyQuery = Aspersion::query()->with(['point', 'shift', 'startedBy', 'endedBy']);
+
+            if ($filters['from'] ?? null) {
+                $historyQuery->whereDate('started_at', '>=', $filters['from']);
+            }
+            if ($filters['to'] ?? null) {
+                $historyQuery->whereDate('started_at', '<=', $filters['to']);
+            }
+            if ($filters['point_id'] ?? null) {
+                $historyQuery->where('aspersion_point_id', $filters['point_id']);
+            }
+            if (($filters['shift_type'] ?? null) === 'day') {
+                $historyQuery->whereHas('shift', fn ($query) => $query->where('starts_at', '08:00:00'));
+            }
+            if (($filters['shift_type'] ?? null) === 'night') {
+                $historyQuery->whereHas('shift', fn ($query) => $query->where('starts_at', '20:00:00'));
+            }
+
+            $completed = (clone $historyQuery)->where('status', 'completed')->get();
+            $data['aspersionPoints'] = AspersionPoint::query()->where('is_active', true)->orderBy('name')->get();
+            $data['aspersionHistory'] = $historyQuery->latest('started_at')->paginate(50)->withQueryString();
+            $data['aspersionSummary'] = [
+                'cycles' => $completed->count(),
+                'total' => $completed->sum(fn (Aspersion $item): float => (float) $item->total_consumption),
+                'day' => $completed->filter(fn (Aspersion $item): bool => str_starts_with($item->shift->starts_at, '08:'))->sum(fn (Aspersion $item): float => (float) $item->total_consumption),
+                'night' => $completed->filter(fn (Aspersion $item): bool => str_starts_with($item->shift->starts_at, '20:'))->sum(fn (Aspersion $item): float => (float) $item->total_consumption),
+            ];
+            $data['aspersionFilters'] = $filters;
+        }
+
+        return view('operation.module', $this->baseData('aspersion', $shift) + $data);
     }
 
     public function startAspersion(Request $request, DailyOperationService $operations): RedirectResponse

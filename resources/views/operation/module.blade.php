@@ -120,13 +120,14 @@
         @elseif($module === 'aspersion')
             <section class="module-grid">
                 <div class="action-list">
+                    <div class="panel-head"><div><h2>Turno atual</h2><p>Acionamentos em andamento e concluídos</p></div></div>
                     @forelse($aspersions as $item)
-                        <article class="action-card cyan"><span class="status-orb {{ $item->status }}"></span><div><h3>{{ $item->area }} • {{ $item->line }}</h3><p>Iniciada por {{ $item->startedBy?->name }} às {{ $item->started_at->format('H:i') }}</p>@if($item->status === 'completed')<small>Consumo: {{ $item->total_consumption ?? '—' }}</small>@endif</div>
+                        <article class="action-card cyan"><span class="status-orb {{ $item->status }}"></span><div><h3>{{ $item->point?->name ?: $item->area }} @if($item->line) • {{ $item->line }} @endif</h3><p>Iniciada {{ $item->started_at->format('d/m • H:i') }} @if($item->startedBy) por {{ $item->startedBy->name }} @else pelo acesso rápido @endif</p><small>Vazão: {{ $item->initial_flow_rate ?? '—' }} m³/h • Canhões: {{ $item->initial_active_cannons ?? '—' }} @if($item->status === 'completed') • Consumo: {{ $item->total_consumption ?? '—' }} m³ @endif</small></div>
                         @if($item->status === 'active')<form method="POST" action="{{ route('aspersion.end',$item) }}">@csrf<input class="compact-input" type="number" step="any" name="final_reading" placeholder="Leitura final"><button class="button primary">Finalizar</button></form>@else<strong>Concluída</strong>@endif</article>
                     @empty<div class="empty-state">Nenhuma aspersão registrada.</div>@endforelse
                 </div>
                 <article class="panel-card">
-                    <div class="panel-head"><div><h2>Iniciar aspersão</h2><p>Registre local, leitura e responsável</p></div></div>
+                    <div class="panel-head"><div><h2>Iniciar manualmente</h2><p>Alternativa ao QR Code</p></div></div>
                     <form method="POST" action="{{ route('aspersion.start') }}" class="stack-form">@csrf
                         <label class="field"><span>Área</span><input name="area" required placeholder="Ex.: Setor Sul"></label>
                         <label class="field"><span>Linha</span><input name="line" placeholder="Ex.: Linha 01"></label>
@@ -136,6 +137,55 @@
                     </form>
                 </article>
             </section>
+
+            @if(auth()->user()->role === 'master')
+                <section class="aspersion-master-section">
+                    <div class="section-heading"><div><span class="eyebrow accent">ACESSO MASTER</span><h2>Pontos e QR Codes</h2><p>Crie uma identificação para cada painel elétrico e imprima a plaquinha.</p></div></div>
+                    <div class="qr-management-grid">
+                        <div class="qr-point-list">
+                            @forelse($aspersionPoints as $point)
+                                <article class="qr-point-card"><div><span class="status-orb"></span><div><h3>{{ $point->name }}</h3><p>{{ $point->location ?: 'Local não informado' }}</p></div></div><div class="qr-point-actions"><a class="button primary" href="{{ route('aspersion-points.plate', $point) }}" target="_blank">Ver e imprimir QR</a><a class="button secondary" href="{{ route('aspersion.public.show', $point->public_token) }}" target="_blank">Testar tela</a></div></article>
+                            @empty<div class="empty-state">Crie o primeiro ponto de aspersão.</div>@endforelse
+                        </div>
+                        <article class="panel-card">
+                            <div class="panel-head"><div><h3>Novo ponto</h3><p>Bomba ou painel que receberá a plaquinha</p></div></div>
+                            <form method="POST" action="{{ route('aspersion-points.store') }}" class="stack-form">@csrf
+                                <label class="field"><span>Nome da bomba ou painel</span><input name="name" required placeholder="Ex.: Bomba de aspersão 02"></label>
+                                <label class="field"><span>Localização</span><input name="location" placeholder="Ex.: Painel elétrico inferior"></label>
+                                <button class="button primary large">Criar QR Code</button>
+                            </form>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="aspersion-master-section">
+                    <div class="section-heading"><div><span class="eyebrow accent">HISTÓRICO MASTER</span><h2>Controle total da aspersão</h2><p>Consulte vazões, consumo e funcionamento por dia, noite e ponto.</p></div></div>
+                    <form method="GET" action="{{ route('aspersion') }}" class="history-filters">
+                        <label class="field"><span>De</span><input type="date" name="from" value="{{ $aspersionFilters['from'] ?? '' }}"></label>
+                        <label class="field"><span>Até</span><input type="date" name="to" value="{{ $aspersionFilters['to'] ?? '' }}"></label>
+                        <label class="field"><span>Turno</span><select name="shift_type"><option value="">Todos</option><option value="day" @selected(($aspersionFilters['shift_type'] ?? '') === 'day')>Diurno</option><option value="night" @selected(($aspersionFilters['shift_type'] ?? '') === 'night')>Noturno</option></select></label>
+                        <label class="field"><span>Ponto</span><select name="point_id"><option value="">Todos</option>@foreach($aspersionPoints as $point)<option value="{{ $point->id }}" @selected((string) ($aspersionFilters['point_id'] ?? '') === (string) $point->id)>{{ $point->name }}</option>@endforeach</select></label>
+                        <button class="button primary">Filtrar</button><a class="button secondary" href="{{ route('aspersion') }}">Limpar</a>
+                    </form>
+                    <div class="aspersion-summary-grid">
+                        <div><span>Ciclos concluídos</span><b>{{ $aspersionSummary['cycles'] }}</b></div>
+                        <div><span>Consumo total</span><b>{{ number_format($aspersionSummary['total'], 3, ',', '.') }} m³</b></div>
+                        <div><span>Turno diurno</span><b>{{ number_format($aspersionSummary['day'], 3, ',', '.') }} m³</b></div>
+                        <div><span>Turno noturno</span><b>{{ number_format($aspersionSummary['night'], 3, ',', '.') }} m³</b></div>
+                    </div>
+                    <div class="history-table-wrap">
+                        <table class="history-table">
+                            <thead><tr><th>Data e turno</th><th>Ponto</th><th>Início → fim</th><th>Duração</th><th>Totalizador</th><th>Vazão</th><th>Canhões</th><th>Consumo</th></tr></thead>
+                            <tbody>
+                                @forelse($aspersionHistory as $item)
+                                    <tr><td><b>{{ $item->started_at->format('d/m/Y') }}</b><small>{{ str_starts_with($item->shift->starts_at, '20:') ? 'Noturno' : 'Diurno' }}</small></td><td>{{ $item->point?->name ?: $item->area }}</td><td>{{ $item->started_at->format('H:i') }} → {{ $item->ended_at?->format('H:i') ?: 'ativa' }}</td><td>{{ $item->ended_at ? $item->started_at->diffForHumans($item->ended_at, true) : 'em andamento' }}</td><td>{{ $item->initial_reading ?? '—' }} → {{ $item->final_reading ?? '—' }}</td><td>{{ $item->initial_flow_rate ?? '—' }} → {{ $item->final_flow_rate ?? '—' }}<small>m³/h</small></td><td>{{ $item->initial_active_cannons ?? '—' }} → {{ $item->final_active_cannons ?? '—' }}</td><td><b>{{ $item->total_consumption ?? '—' }} @if($item->total_consumption !== null) m³ @endif</b></td></tr>
+                                @empty<tr><td colspan="8" class="empty-state">Nenhum registro para os filtros selecionados.</td></tr>@endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    @if($aspersionHistory->hasPages())<div class="history-pagination">@if($aspersionHistory->previousPageUrl())<a class="button secondary" href="{{ $aspersionHistory->previousPageUrl() }}">← Anterior</a>@endif<span>Página {{ $aspersionHistory->currentPage() }} de {{ $aspersionHistory->lastPage() }}</span>@if($aspersionHistory->nextPageUrl())<a class="button secondary" href="{{ $aspersionHistory->nextPageUrl() }}">Próxima →</a>@endif</div>@endif
+                </section>
+            @endif
 
         @elseif($module === 'occurrences')
             <section class="module-grid">

@@ -1,12 +1,18 @@
 <?php
 
+use App\Http\Controllers\AspersionPointController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\OperationsModuleController;
+use App\Http\Controllers\PublicAspersionController;
 use App\Http\Controllers\ReadingSectionController;
 use App\Http\Controllers\ShiftTeamController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/aspersao/acesso/{token}', [PublicAspersionController::class, 'show'])->name('aspersion.public.show');
+Route::post('/aspersao/acesso/{token}', [PublicAspersionController::class, 'store'])
+    ->middleware('throttle:30,1')
+    ->name('aspersion.public.store');
 Route::get('/', fn () => auth()->check()
     ? redirect()->route(auth()->user()->role === 'master' ? 'master' : 'operation.home')
     : redirect()->route('login'));
@@ -32,6 +38,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/aspersao', [OperationsModuleController::class, 'aspersions'])->name('aspersion');
     Route::post('/aspersao', [OperationsModuleController::class, 'startAspersion'])->name('aspersion.start');
     Route::post('/aspersao/{aspersion}/finalizar', [OperationsModuleController::class, 'endAspersion'])->name('aspersion.end');
+    Route::post('/aspersao/pontos', [AspersionPointController::class, 'store'])->name('aspersion-points.store');
+    Route::get('/aspersao/pontos/{aspersionPoint}/placa', [AspersionPointController::class, 'plate'])->name('aspersion-points.plate');
 
     Route::get('/ocorrencias', [OperationsModuleController::class, 'occurrences'])->name('occurrences');
     Route::post('/ocorrencias', [OperationsModuleController::class, 'createOccurrence'])->name('occurrences.create');
