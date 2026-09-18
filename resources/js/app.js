@@ -1,5 +1,6 @@
 const body = document.body;
 const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+const isMaster = body.dataset.userRole === 'master';
 let serverBase = Date.parse(body.dataset.serverTime || new Date().toISOString());
 let synchronizedAt = Date.now();
 
@@ -97,11 +98,82 @@ async function api(url, options = {}) {
 
 const statusLabels = {
     pending: 'Pendente',
-    in_progress: 'Em andamento',
+    in_progress: 'Rascunho',
     completed: 'Concluído',
     reopened: 'Reaberto',
     not_applicable: 'Não aplicável',
 };
+
+const definitionLabelsElement = document.querySelector('#reading-definition-labels');
+const definitionLabels = definitionLabelsElement ? JSON.parse(definitionLabelsElement.textContent || '{}') : {};
+const semanticOptions = definitionLabels.semantic_statuses || { MEASURED: 'Medido', NO_FLOW: 'Sem vazão', METER_FAULT: 'Medidor com defeito', NOT_MEASURED: 'Leitura não realizada', EQUIPMENT_STOPPED: 'Equipamento parado', NOT_APPLICABLE: 'Não aplicável' };
+const equipmentOptions = { OPERATING: 'Operando', STOPPED: 'Parado', MAINTENANCE: 'Em manutenção', FAILURE: 'Falha', UNAVAILABLE: 'Indisponível' };
+
+function renderTypedControl(rule, saved = {}) {
+    const type = rule.data_type || ((rule.minimum_value === null && rule.maximum_value === null && rule.unit === null) ? 'textarea' : 'decimal');
+    if (type === 'boolean') return `<select data-value-boolean><option value="">Selecione</option><option value="1" ${saved.value_boolean === true ? 'selected' : ''}>Sim</option><option value="0" ${saved.value_boolean === false ? 'selected' : ''}>Não</option></select>`;
+    if (type === 'equipment_status') return `<select data-equipment-state><option value="">Selecione</option>${Object.entries(equipmentOptions).map(([value,label]) => `<option value="${value}" ${saved.equipment_state === value ? 'selected' : ''}>${label}</option>`).join('')}</select>`;
+    if (type === 'single_select') return `<select data-value-text><option value="">Selecione</option>${(rule.options || []).map(value => `<option ${saved.value_text === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select>`;
+    if (type === 'time') return `<input type="time" data-value-text value="${escapeHtml(saved.value_text ?? '')}">`;
+    if (type === 'text' || type === 'textarea') return `<textarea data-value-text placeholder="Registre a informação">${escapeHtml(saved.value_text ?? '')}</textarea>`;
+    const step = type === 'integer' ? '1' : (1 / (10 ** (rule.decimal_places ?? 2)));
+    return `<div class="input-unit"><input inputmode="decimal" type="number" step="${step}" data-value-numeric value="${escapeHtml(saved.value_numeric ?? '')}" placeholder="0">${rule.unit ? `<span>${escapeHtml(rule.unit)}</span>` : ''}</div>`;
+}
+
+function renderDefinitionField(rule, savedValues = []) {
+    const points = rule.points?.length ? rule.points.filter(point => point.is_active) : [null];
+    return points.map(point => {
+        const saved = savedValues.find(value => Number(value.parameter_rule_id) === Number(rule.id) && (value.parameter_rule_point_id ?? null) === (point?.id ?? null)) || savedValues.find(value => !point && value.field_key === rule.field_key) || {};
+        const condition = rule.condition_operator === 'BETWEEN' ? `${rule.minimum_value ?? '—'} a ${rule.maximum_value ?? '—'} ${rule.unit || ''}` : rule.condition_operator === 'GREATER_THAN' ? `Maior que ${rule.minimum_value} ${rule.unit || ''}` : rule.condition_operator === 'LESS_THAN' ? `Menor que ${rule.maximum_value} ${rule.unit || ''}` : rule.reference_value !== null ? `Referência: ${rule.reference_value} ${rule.unit || ''}` : (rule.operational_rule || rule.data_type || 'Parâmetro');
+        const visibility = rule.visibility_config || {};
+        return `<div class="field-card field" data-value-entry data-field="${escapeHtml(rule.field_key)}" data-rule-id="${rule.id}" data-point-id="${point?.id || ''}" data-visibility-field="${escapeHtml(visibility.field_key || '')}" data-visibility-value="${escapeHtml(String(visibility.value ?? ''))}" data-condition-operator="${escapeHtml(rule.condition_operator || 'REFERENCE')}" data-minimum="${escapeHtml(rule.minimum_value ?? '')}" data-maximum="${escapeHtml(rule.maximum_value ?? '')}" data-reference="${escapeHtml(rule.reference_value ?? '')}"><span class="field-meta"><b>${escapeHtml(rule.label)}${point ? ' • ' + escapeHtml(point.label) : ''}</b><small>${escapeHtml(condition)}</small></span><div data-conditional-message class="conditional-message" hidden>Não aplicável para a resposta atual. O histórico anterior será preservado.</div><select data-semantic-status>${Object.entries(semanticOptions).map(([value,label]) => `<option value="${value}" ${(saved.semantic_status || 'MEASURED') === value ? 'selected' : ''}>${label}</option>`).join('')}</select>${renderTypedControl(rule, saved)}<small data-condition-feedback></small><input data-justification value="${escapeHtml(saved.justification ?? '')}" placeholder="Justificativa/motivo quando necessário"></div>`;
+    }).join('');
+}
+
+function activateDefinitionBehaviors(root) {
+    const entries = [...root.querySelectorAll('[data-value-entry]')];
+    const isOutOfCondition = (entry, value) => {
+        const number = Number(value);
+        if (value === '' || Number.isNaN(number)) return null;
+        const minimum = entry.dataset.minimum === '' ? null : Number(entry.dataset.minimum);
+        const maximum = entry.dataset.maximum === '' ? null : Number(entry.dataset.maximum);
+        const reference = entry.dataset.reference === '' ? null : Number(entry.dataset.reference);
+        switch (entry.dataset.conditionOperator) {
+            case 'BETWEEN': return (minimum !== null && number < minimum) || (maximum !== null && number > maximum);
+            case 'GREATER_THAN': return minimum !== null && !(number > minimum);
+            case 'GREATER_THAN_OR_EQUAL': return minimum !== null && !(number >= minimum);
+            case 'LESS_THAN': return maximum !== null && !(number < maximum);
+            case 'LESS_THAN_OR_EQUAL': return maximum !== null && !(number <= maximum);
+            case 'EQUAL': return reference !== null && number !== reference;
+            case 'REFERENCE': return null;
+            default: return null;
+        }
+    };
+    const update = () => {
+        entries.forEach((entry) => {
+            if (!entry.dataset.visibilityField) return;
+            const parent = entries.find(candidate => candidate.dataset.field === entry.dataset.visibilityField);
+            const boolean = parent?.querySelector('[data-value-boolean]')?.value;
+            const applicable = String(boolean === '1') === entry.dataset.visibilityValue;
+            entry.dataset.applicable = String(applicable);
+            entry.classList.toggle('conditional-inactive', !applicable);
+            entry.querySelector('[data-conditional-message]').hidden = applicable;
+            entry.querySelectorAll('input,select,textarea').forEach(control => control.disabled = !applicable);
+        });
+    };
+    entries.forEach((entry) => {
+        entry.querySelectorAll('input,select,textarea').forEach(control => control.addEventListener('change', update));
+        const numeric = entry.querySelector('[data-value-numeric]');
+        const feedback = entry.querySelector('[data-condition-feedback]');
+        if (numeric && feedback) numeric.addEventListener('input', () => {
+            const outside = isOutOfCondition(entry, numeric.value);
+            feedback.className = outside === true ? 'condition-feedback outside' : outside === false ? 'condition-feedback inside' : 'condition-feedback reference';
+            feedback.textContent = outside === true ? 'Fora da faixa operacional' : outside === false ? '✓ Dentro da faixa operacional' : numeric.value === '' ? '' : 'Valor de referência informativo';
+        });
+        numeric?.dispatchEvent(new Event('input'));
+    });
+    update();
+}
 
 if (body.dataset.page === 'readings') {
     const panel = document.querySelector('#reading-panel');
@@ -113,10 +185,12 @@ if (body.dataset.page === 'readings') {
         tabs.forEach((tab) => tab.classList.toggle('active', Number(tab.dataset.sectionId) === activeSectionId));
         panel.innerHTML = '<div class="loading-card">Carregando bloco…</div>';
 
-        const opened = await api('/api/reading-sections/' + activeSectionId + '/open', {
-            method: 'POST',
-            body: JSON.stringify({ force }),
-        });
+        const opened = isMaster
+            ? { response: { ok: true, status: 200 }, data: {} }
+            : await api('/api/reading-sections/' + activeSectionId + '/open', {
+                method: 'POST',
+                body: JSON.stringify({ force }),
+            });
 
         if (opened.response.status === 409) {
             panel.innerHTML = `<div class="presence-warning"><span class="status-badge in_progress">EM EDIÇÃO</span><h2>${escapeHtml(opened.data.editor || 'Outro operador')} está preenchendo este bloco</h2><p>Aberto ${relativeTime(opened.data.editing_started_at)}. Você pode escolher outro bloco ou abrir mesmo assim. Nenhum salvamento será sobrescrito silenciosamente.</p><div class="panel-actions"><button type="button" class="button secondary" id="cancel-open">Escolher outro bloco</button><button type="button" class="button primary" id="force-open">Abrir mesmo assim</button></div></div>`;
@@ -139,45 +213,40 @@ if (body.dataset.page === 'readings') {
         }
 
         const section = data.section;
-        const values = new Map(section.values.map((value) => [value.field_key, value]));
+        const values = section.values;
         const previousValues = new Map((data.previous_values || []).map((value) => [value.field_key, value]));
-        const fields = data.rules.map((rule) => {
-            const saved = values.get(rule.field_key);
-            const isText = rule.minimum_value === null && rule.maximum_value === null && rule.unit === null;
-            const range = rule.minimum_value !== null || rule.maximum_value !== null
-                ? [rule.minimum_value ?? '—', rule.maximum_value ?? '—'].join(' a ') + (rule.unit ? ' ' + rule.unit : '')
-                : 'Texto livre';
-            const control = isText
-                ? `<textarea data-field="${escapeHtml(rule.field_key)}" data-type="text" required placeholder="Registre a observação">${escapeHtml(saved?.value_text ?? '')}</textarea>`
-                : `<div class="input-unit"><input inputmode="decimal" type="number" step="any" data-field="${escapeHtml(rule.field_key)}" data-type="number" required value="${escapeHtml(saved?.value_numeric ?? '')}" placeholder="0,00">${rule.unit ? `<span>${escapeHtml(rule.unit)}</span>` : ''}</div>`;
-            return `<label class="field-card field"><span class="field-meta"><b>${escapeHtml(rule.label)}</b><small>${escapeHtml(range)}</small></span>${control}</label>`;
-        }).join('');
+        const fields = data.rules.map((rule) => renderDefinitionField(rule, values)).join('');
 
         panel.innerHTML = `
             <form id="reading-form">
                 <div class="panel-title">
-                    <div><h2>${escapeHtml(section.label)}</h2><p>${section.last_edited_by ? 'Última edição por ' + escapeHtml(section.last_edited_by.name) + ' ' + relativeTime(section.updated_at) : 'Aguardando primeira leitura'}</p></div>
+                    <div><h2>${escapeHtml(section.label)}</h2><p>${section.last_edited_by ? 'Última edição por ' + escapeHtml(section.last_edited_by.name) + ' ' + relativeTime(section.updated_at) : 'Aguardando primeira leitura'}</p>${isMaster ? '<small>Consulta do Master — somente leitura</small>' : ''}</div>
                     <span class="status-badge ${escapeHtml(section.status)}">${escapeHtml(statusLabels[section.status] || section.status)}</span>
                 </div>
                 <div id="conflict-area"></div>
                 <div class="fields-grid">${fields || '<div class="empty-state">Nenhum parâmetro configurado para este bloco.</div>'}</div>
-                <div class="panel-actions">
+                <div class="panel-actions" ${isMaster ? 'hidden' : ''}>
                     ${previousValues.size ? '<button class="button ghost" type="button" id="copy-previous">Usar última leitura (' + escapeHtml(data.previous_round_time || '') + ')</button>' : ''}
                     <button class="button secondary" type="submit" value="in_progress">Salvar rascunho</button>
                     <button class="button primary" type="submit" value="completed">Concluir bloco</button>
                 </div>
             </form>
         `;
+        activateDefinitionBehaviors(panel);
+        if (isMaster) {
+            panel.querySelectorAll('input, select, textarea, button').forEach((control) => control.disabled = true);
+        }
 
         document.querySelector('#copy-previous')?.addEventListener('click', () => {
             if (!window.confirm('Copiar os valores da rodada ' + (data.previous_round_time || 'anterior') + '? Você poderá revisar antes de salvar.')) return;
 
-            document.querySelectorAll('#reading-form [data-field]').forEach((input) => {
-                const previous = previousValues.get(input.dataset.field);
+            document.querySelectorAll('#reading-form [data-value-entry]').forEach((container) => {
+                const previous = previousValues.get(container.dataset.field);
                 if (!previous) return;
-                input.value = input.dataset.type === 'text'
-                    ? (previous.value_text ?? '')
-                    : (previous.value_numeric ?? '');
+                const text = container.querySelector('[data-value-text]');
+                const numeric = container.querySelector('[data-value-numeric]');
+                if (text) text.value = previous.value_text ?? '';
+                if (numeric) numeric.value = previous.value_numeric ?? '';
             });
             toast('Valores anteriores copiados. Revise antes de salvar.');
         });
@@ -185,10 +254,13 @@ if (body.dataset.page === 'readings') {
         document.querySelector('#reading-form')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             const submitter = event.submitter;
-            const valuesPayload = [...event.currentTarget.querySelectorAll('[data-field]')].map((input) => {
-                const entry = { field_key: input.dataset.field };
-                if (input.dataset.type === 'text') entry.value_text = input.value;
-                else entry.value_numeric = input.value === '' ? null : Number(input.value);
+            const valuesPayload = [...event.currentTarget.querySelectorAll('[data-value-entry]')].filter(container => container.dataset.applicable !== 'false').map((container) => {
+                const entry = { field_key: container.dataset.field, parameter_rule_id: Number(container.dataset.ruleId), parameter_rule_point_id: container.dataset.pointId ? Number(container.dataset.pointId) : null, semantic_status: container.querySelector('[data-semantic-status]').value, justification: container.querySelector('[data-justification]').value || null };
+                const numeric = container.querySelector('[data-value-numeric]'); const text = container.querySelector('[data-value-text]'); const boolean = container.querySelector('[data-value-boolean]'); const equipment = container.querySelector('[data-equipment-state]');
+                if (numeric) entry.value_numeric = numeric.value === '' ? null : Number(numeric.value);
+                if (text) entry.value_text = text.value || null;
+                if (boolean) entry.value_boolean = boolean.value === '' ? null : boolean.value === '1';
+                if (equipment) entry.equipment_state = equipment.value || null;
                 return entry;
             });
             const buttons = [...event.currentTarget.querySelectorAll('button')];
@@ -249,6 +321,42 @@ if (body.dataset.page === 'readings') {
     if (tabs[0]) loadSection(tabs[0].dataset.sectionId);
 }
 
+if (body.dataset.page === 'reading-builder') {
+    const template = document.querySelector('#point-editor-template');
+    const reindex = (editor) => {
+        [...editor.querySelectorAll('.point-editor-row')].forEach((row, index) => {
+            row.querySelectorAll('[data-point-field]').forEach(input => {
+                input.name = `points[${index}][${input.dataset.pointField}]`;
+            });
+            const order = row.querySelector('[data-point-field="sort_order"]');
+            if (order && !order.value) order.value = index + 1;
+        });
+    };
+    document.querySelectorAll('[data-points-editor]').forEach(reindex);
+    document.addEventListener('click', (event) => {
+        const add = event.target.closest('[data-add-point]');
+        const remove = event.target.closest('[data-remove-point]');
+        if (add) {
+            const editor = add.parentElement.querySelector('[data-points-editor]');
+            editor.append(template.content.cloneNode(true));
+            reindex(editor);
+        }
+        if (remove) {
+            const editor = remove.closest('[data-points-editor]');
+            remove.closest('.point-editor-row').remove();
+            reindex(editor);
+        }
+    });
+}
+
+if (body.dataset.page === 'reading-preview') {
+    const preview = document.querySelector('#definition-preview');
+    const sections = JSON.parse(preview?.dataset.definition || '[]');
+    preview.innerHTML = sections.map(section => `<section class="round-card"><div class="panel-title"><div><span class="eyebrow">SEÇÃO</span><h2>${escapeHtml(section.label)}</h2></div></div><div class="fields-grid">${(section.parameter_rules || []).map(rule => renderDefinitionField(rule)).join('')}</div></section>`).join('') || '<div class="empty-state">Versão sem definições.</div>';
+    activateDefinitionBehaviors(preview);
+    preview.querySelectorAll('input,textarea,select').forEach(control => control.addEventListener('change', () => toast('Preview: nenhum dado será salvo.')));
+}
+
 if (body.dataset.page === 'master') {
     const loading = document.querySelector('#master-loading');
     const content = document.querySelector('#master-content');
@@ -282,12 +390,11 @@ if (body.dataset.page === 'master') {
         document.querySelector('#kpi-overdue').textContent = snapshot.rounds.filter((round) => round.is_overdue).length;
         document.querySelector('#kpi-alerts').textContent = snapshot.alerts.length;
         document.querySelector('#kpi-team').textContent = snapshot.shift.members.length;
-        document.querySelector('#kpi-actions').textContent = snapshot.operations.pending_actions;
-        document.querySelector('#kpi-actions-copy').textContent = snapshot.operations.overdue_actions + ' atrasada(s)';
-        document.querySelector('#kpi-occurrences').textContent = snapshot.operations.open_occurrences;
-        document.querySelector('#kpi-aspersions').textContent = snapshot.operations.active_aspersions;
-        document.querySelector('#kpi-equipment').textContent = snapshot.operations.stopped_equipment;
-        document.querySelector('#kpi-equipment-copy').textContent = snapshot.operations.attention_equipment + ' em atenção';
+        const stockSummary = document.querySelector('#chemical-stock-summary');
+        if (stockSummary && snapshot.chemical_stock) {
+            const stock = snapshot.chemical_stock;
+            stockSummary.innerHTML = `<article class="kpi"><label>Normal</label><strong>${stock.normal}</strong></article><article class="kpi"><label>Baixo</label><strong>${stock.low}</strong></article><article class="kpi"><label>Crítico</label><strong>${stock.critical}</strong></article><article class="kpi"><label>Sem estoque</label><strong>${stock.empty}</strong><small>${stock.unknown ? stock.unknown + ' sem contagem' : ''}</small></article>`;
+        }
 
         document.querySelector('#master-rounds').innerHTML = snapshot.rounds.map((round) => `
             <a class="master-round ${round.id === snapshot.display_round_id ? 'current' : ''} ${round.is_overdue ? 'overdue' : ''}" href="/leituras?round=${round.id}">

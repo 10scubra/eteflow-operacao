@@ -30,7 +30,7 @@
             @csrf
             <label>
                 <span>Usuário</span>
-                <input name="username" value="{{ old('username') }}" autocomplete="username" autocapitalize="none" required autofocus placeholder="Ex.: operador1">
+                <input name="username" value="{{ old('username') }}" autocomplete="username" autocapitalize="none" required autofocus placeholder="Digite seu usuário">
             </label>
             <label>
                 <span>Senha</span>
@@ -39,11 +39,6 @@
             <button class="button primary large" type="submit">Entrar no sistema</button>
         </form>
 
-        <div class="test-devices">
-            <span><b>Celular 1</b> operador1</span>
-            <span><b>Celular 2</b> operador2</span>
-            <span><b>Computador</b> master.teste</span>
-        </div>
     </section>
 </main>
 @endsection

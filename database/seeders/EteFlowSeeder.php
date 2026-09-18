@@ -4,10 +4,13 @@ namespace Database\Seeders;
 
 use App\Models\Aspersion;
 use App\Models\AspersionPoint;
+use App\Models\Equipment;
 use App\Models\EquipmentStatus;
 use App\Models\Occurrence;
 use App\Models\OperationalAction;
 use App\Models\ParameterRule;
+use App\Models\ReadingSectionDefinition;
+use App\Models\ShiftTemplate;
 use App\Models\User;
 use App\Services\DailyOperationService;
 use Illuminate\Database\Seeder;
@@ -46,6 +49,56 @@ class EteFlowSeeder extends Seeder
             );
         }
 
+        $this->call(AccessControlSeeder::class);
+        $this->call(ProcessBiologicalReadingSeeder::class);
+        $this->call(SecondaryProcessReadingSeeder::class);
+        $this->call(DosingAssistantSeeder::class);
+        $this->call(ChemicalStockSeeder::class);
+
+        $shiftTemplates = [
+            ['code' => 'day', 'name' => 'Diurno', 'starts_at' => '08:00:00', 'ends_at' => '20:00:00'],
+            ['code' => 'night', 'name' => 'Noturno', 'starts_at' => '20:00:00', 'ends_at' => '08:00:00'],
+        ];
+        foreach ($shiftTemplates as $templateData) {
+            $template = ShiftTemplate::query()->firstOrCreate(
+                ['code' => $templateData['code'], 'version' => 1],
+                $templateData + ['is_active' => true],
+            );
+
+            foreach ([30, 150, 270, 390, 510, 630] as $index => $offset) {
+                $template->rounds()->firstOrCreate(
+                    ['offset_minutes' => $offset],
+                    ['sort_order' => $index + 1, 'is_active' => true],
+                );
+            }
+        }
+
+        $sectionDefinitions = [
+            'process' => 'Processo',
+            'flotators' => 'Flotadores',
+            'decanter' => 'Decanter',
+            'totalizers' => 'Totalizadores',
+            'chemicals' => 'Produtos químicos',
+            'observations' => 'Observações',
+        ];
+        foreach ($sectionDefinitions as $index => $label) {
+            ReadingSectionDefinition::query()->firstOrCreate(
+                ['section_key' => $index, 'version' => 1],
+                ['label' => $label, 'sort_order' => array_search($index, array_keys($sectionDefinitions), true) + 1, 'is_active' => true],
+            );
+        }
+
+        foreach ([
+            ['code' => 'flotator-01', 'name' => 'Flotador 01', 'category' => 'Flotador', 'location' => 'Flotação'],
+            ['code' => 'flotator-02', 'name' => 'Flotador 02', 'category' => 'Flotador', 'location' => 'Flotação'],
+            ['code' => 'decanter', 'name' => 'Decanter', 'category' => 'Decanter', 'location' => 'Processo'],
+            ['code' => 'aspersion-pump-01', 'name' => 'Bomba de aspersão 01', 'category' => 'Bomba', 'location' => 'Painel elétrico da aspersão'],
+        ] as $equipmentData) {
+            Equipment::query()->firstOrCreate(
+                ['code' => $equipmentData['code']],
+                $equipmentData + ['is_active' => true],
+            );
+        }
         $rules = [
             ['process', 'flow_in', 'Vazão de entrada', 'm³/h', 0, 500],
             ['process', 'ph', 'pH', null, 6.5, 8.5],
@@ -62,9 +115,9 @@ class EteFlowSeeder extends Seeder
         ];
 
         foreach ($rules as [$section, $field, $label, $unit, $minimum, $maximum]) {
-            ParameterRule::query()->updateOrCreate(
+            ParameterRule::query()->firstOrCreate(
                 ['section_key' => $section, 'field_key' => $field, 'version' => 1],
-                ['label' => $label, 'unit' => $unit, 'minimum_value' => $minimum, 'maximum_value' => $maximum, 'is_required' => true, 'is_active' => true],
+                ['label' => $label, 'unit' => $unit, 'minimum_value' => $minimum, 'maximum_value' => $maximum, 'is_required' => true, 'is_active' => true, 'effective_from' => now()->startOfDay()],
             );
         }
 

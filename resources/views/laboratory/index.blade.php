@@ -1,0 +1,5 @@
+@extends('layouts.app')
+@section('title','Análises • ETEFlow')
+@section('content')
+<div class="app-shell">@include('operation.navigation')<main class="workspace"><header class="page-header"><div><span class="eyebrow">LABORATÓRIO</span><h1>Análises — {{ $unit->name }}</h1></div>@can('laboratory.create')<a class="button primary" href="{{ route('laboratory.create',['unit'=>$unit->id]) }}">+ Nova coleta</a>@endcan</header>@foreach($collections as $collection)<article class="panel-card"><h2>{{ $collection->point->name }}</h2><p>{{ $collection->origin_type }} • {{ $collection->collected_at->format('d/m/Y H:i') }}</p><div class="list">@foreach($collection->results as $result)<div class="list-row"><div><b>{{ $result->parameter->name }}</b><small>{{ number_format($result->effectiveValue(),$result->parameter->decimal_places,',','.') }} {{ $result->unit }}</small></div></div>@endforeach</div></article>@endforeach</main></div>
+@endsection

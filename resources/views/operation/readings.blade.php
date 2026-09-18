@@ -11,15 +11,15 @@
         <header class="page-header">
             <div>
                 <span class="eyebrow">TURNO {{ str_starts_with($shift->starts_at, '20:') ? 'NOTURNO' : 'DIURNO' }} • {{ substr($shift->starts_at, 0, 5) }}–{{ substr($shift->ends_at, 0, 5) }}</span>
-                <h1>Rodadas de leitura</h1>
-                <p>{{ auth()->user()->name }} • dados compartilhados com a equipe</p>
+                <h1>Monitoramento Diário de Campo — ETE</h1>
+                <p>{{ $shift->shift_date->format('d/m/Y') }} • dados compartilhados com a equipe</p>
             </div>
             <div class="server-clock"><span>HORÁRIO DO SERVIDOR</span><strong id="live-clock">--:--:--</strong><small id="live-date"></small></div>
         </header>
 
         <section class="shift-summary">
             <div><span class="status-dot"></span><b>Turno {{ $shift->status === 'active' ? 'ativo' : ($shift->status === 'planned' ? 'programado' : 'encerrado') }}</b></div>
-            <span>{{ $shift->members->pluck('name')->join(' + ') }}</span>
+            <span>@foreach($shift->members->take(2) as $member){{ $member->employee?->display_name ?: $member->name }}{{ $member->employee?->registration_number ? ' • Matrícula '.$member->employee->registration_number : '' }}{{ ! $loop->last ? ' + ' : '' }}@endforeach</span>
             @if($timeline['current'])
                 <span>Rodada atual: <b>{{ $timeline['current']->scheduled_at->format('H:i') }}</b></span>
             @elseif($timeline['next'])
@@ -67,6 +67,7 @@
         <section id="reading-panel" class="reading-panel" aria-live="polite">
             <div class="loading-card">Carregando bloco…</div>
         </section>
+        <script type="application/json" id="reading-definition-labels">@json($definitionLabels)</script>
     </main>
 
 </div>

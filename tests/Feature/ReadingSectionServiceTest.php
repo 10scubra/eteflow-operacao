@@ -25,15 +25,15 @@ class ReadingSectionServiceTest extends TestCase
     public function test_saving_one_section_does_not_change_another_section(): void
     {
         $operator = User::where('username', 'operador1')->firstOrFail();
-        $section = ReadingSection::where('section_key', 'process')->firstOrFail();
-        $untouched = ReadingSection::where('section_key', 'totalizers')->firstOrFail();
+        $section = ReadingSection::where('section_key', 'biological_anoxic_lagoon')->firstOrFail();
+        $untouched = ReadingSection::where('section_key', 'biological_aerobic_lagoon')->firstOrFail();
         $untouchedBefore = $untouched->only(['status', 'lock_version', 'last_edited_by']);
 
         app(ReadingSectionService::class)->save($section, $operator, [
             'lock_version' => $section->lock_version,
             'status' => 'in_progress',
             'values' => [[
-                'field_key' => 'ph',
+                'field_key' => 'anoxic_ph',
                 'value_numeric' => 7.2,
             ]],
         ]);
@@ -41,7 +41,7 @@ class ReadingSectionServiceTest extends TestCase
         $this->assertSame($untouchedBefore, $untouched->fresh()->only(['status', 'lock_version', 'last_edited_by']));
         $this->assertDatabaseHas('reading_values', [
             'reading_section_id' => $section->id,
-            'field_key' => 'ph',
+            'field_key' => 'anoxic_ph',
             'recorded_by' => $operator->id,
         ]);
     }
@@ -49,37 +49,36 @@ class ReadingSectionServiceTest extends TestCase
     public function test_out_of_range_value_is_saved_with_rule_snapshot(): void
     {
         $operator = User::where('username', 'operador1')->firstOrFail();
-        $section = ReadingSection::where('section_key', 'decanter')->firstOrFail();
+        $section = ReadingSection::where('section_key', 'biological_anoxic_lagoon')->firstOrFail();
 
         app(ReadingSectionService::class)->save($section, $operator, [
             'lock_version' => $section->lock_version,
             'status' => 'in_progress',
             'values' => [[
-                'field_key' => 'rotation',
-                'value_numeric' => 6500,
-                'unit' => 'rpm',
+                'field_key' => 'anoxic_ph',
+                'value_numeric' => 8,
             ]],
         ]);
 
         $value = ReadingValue::where('reading_section_id', $section->id)
-            ->where('field_key', 'rotation')
+            ->where('field_key', 'anoxic_ph')
             ->firstOrFail();
 
         $this->assertTrue($value->is_out_of_range);
-        $this->assertSame('0.0000', $value->minimum_at_time);
-        $this->assertSame('6000.0000', $value->maximum_at_time);
-        $this->assertSame('6500.0000', $value->value_numeric);
+        $this->assertSame('6.6000', $value->minimum_at_time);
+        $this->assertSame('7.2000', $value->maximum_at_time);
+        $this->assertSame('8.0000', $value->value_numeric);
     }
 
     public function test_stale_lock_version_is_rejected(): void
     {
         $operator = User::where('username', 'operador1')->firstOrFail();
-        $section = ReadingSection::where('section_key', 'decanter')->firstOrFail();
+        $section = ReadingSection::where('section_key', 'biological_anoxic_lagoon')->firstOrFail();
 
         app(ReadingSectionService::class)->save($section, $operator, [
             'lock_version' => 0,
             'status' => 'in_progress',
-            'values' => [['field_key' => 'rotation', 'value_numeric' => 3200]],
+            'values' => [['field_key' => 'anoxic_ph', 'value_numeric' => 7]],
         ]);
 
         $this->expectException(ConflictHttpException::class);
@@ -87,7 +86,7 @@ class ReadingSectionServiceTest extends TestCase
         app(ReadingSectionService::class)->save($section, $operator, [
             'lock_version' => 0,
             'status' => 'completed',
-            'values' => [['field_key' => 'rotation', 'value_numeric' => 3300]],
+            'values' => [['field_key' => 'anoxic_ph', 'value_numeric' => 7.1]],
         ]);
     }
 
@@ -95,24 +94,32 @@ class ReadingSectionServiceTest extends TestCase
     {
         $edenir = User::where('username', 'operador1')->firstOrFail();
         $igor = User::where('username', 'operador2')->firstOrFail();
-        $section = ReadingSection::where('section_key', 'process')->firstOrFail();
+        $section = ReadingSection::where('section_key', 'biological_anoxic_lagoon')->firstOrFail();
         $service = app(ReadingSectionService::class);
 
         $saved = $service->save($section, $edenir, [
             'lock_version' => $section->lock_version,
             'status' => 'in_progress',
-            'values' => [['field_key' => 'ph', 'value_numeric' => 7.0]],
+            'values' => [
+                ['field_key' => 'anoxic_inlet_flow', 'value_numeric' => 15],
+                ['field_key' => 'feed_pump_command', 'value_numeric' => 50],
+                ['field_key' => 'chemical_feed_flow', 'value_numeric' => 4],
+                ['field_key' => 'anoxic_ph', 'value_numeric' => 7.0],
+                ['field_key' => 'anoxic_dissolved_oxygen', 'value_numeric' => 0.8],
+                ['field_key' => 'anoxic_sd30', 'value_numeric' => 400],
+                ['field_key' => 'anoxic_mixers_running', 'value_numeric' => 2],
+            ],
         ]);
 
         $service->save($saved, $igor, [
             'lock_version' => $saved->lock_version,
             'status' => 'completed',
             'reason' => 'Conferência do segundo operador.',
-            'values' => [['field_key' => 'ph', 'value_numeric' => 7.2]],
+            'values' => [['field_key' => 'anoxic_ph', 'value_numeric' => 7.2]],
         ]);
 
         $value = ReadingValue::where('reading_section_id', $section->id)
-            ->where('field_key', 'ph')
+            ->where('field_key', 'anoxic_ph')
             ->firstOrFail();
         $revisions = ReadingValueRevision::where('reading_value_id', $value->id)
             ->orderBy('id')
@@ -130,7 +137,7 @@ class ReadingSectionServiceTest extends TestCase
     {
         $firstOperator = User::where('username', 'operador1')->firstOrFail();
         $secondOperator = User::where('username', 'operador2')->firstOrFail();
-        $section = ReadingSection::where('section_key', 'process')->firstOrFail();
+        $section = ReadingSection::where('section_key', 'biological_anoxic_lagoon')->firstOrFail();
 
         $this->actingAs($firstOperator)
             ->postJson('/api/reading-sections/'.$section->id.'/open')
@@ -152,7 +159,7 @@ class ReadingSectionServiceTest extends TestCase
     public function test_next_round_can_receive_previous_values_without_automatic_save(): void
     {
         $operator = User::where('username', 'operador1')->firstOrFail();
-        $sections = ReadingSection::where('section_key', 'process')
+        $sections = ReadingSection::where('section_key', 'biological_anoxic_lagoon')
             ->whereHas('round')
             ->with('round')
             ->get()
@@ -164,19 +171,19 @@ class ReadingSectionServiceTest extends TestCase
 
         app(ReadingSectionService::class)->save($first, $operator, [
             'lock_version' => $first->lock_version,
-            'status' => 'completed',
-            'values' => [['field_key' => 'ph', 'value_numeric' => 7.15]],
+            'status' => 'in_progress',
+            'values' => [['field_key' => 'anoxic_ph', 'value_numeric' => 7.15]],
         ]);
 
         $this->actingAs($operator)
             ->getJson('/api/reading-sections/'.$second->id)
             ->assertOk()
-            ->assertJsonPath('previous_values.0.field_key', 'ph')
+            ->assertJsonPath('previous_values.0.field_key', 'anoxic_ph')
             ->assertJsonPath('previous_values.0.value_numeric', '7.1500');
 
         $this->assertDatabaseMissing('reading_values', [
             'reading_section_id' => $second->id,
-            'field_key' => 'ph',
+            'field_key' => 'anoxic_ph',
         ]);
     }
 }

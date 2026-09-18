@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\ActionEvidence;
 use App\Models\Aspersion;
 use App\Models\AspersionPoint;
-use App\Models\EquipmentStatus;
+use App\Models\ChemicalStockCount;
 use App\Models\Occurrence;
 use App\Models\OperationalAction;
 use App\Models\ReadingSection;
 use App\Models\ShiftHandover;
+use App\Services\ChemicalStockService;
 use App\Services\DailyOperationService;
+use App\Services\DosingAssistantService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +21,7 @@ use Illuminate\View\View;
 
 class OperationsModuleController extends Controller
 {
-    public function home(Request $request, DailyOperationService $operations): View
+    public function home(Request $request, DailyOperationService $operations, DosingAssistantService $dosing, ChemicalStockService $chemicalStock): View
     {
         $shift = $operations->ensure();
         $timeline = $operations->timeline($shift);
@@ -28,6 +30,9 @@ class OperationsModuleController extends Controller
         return view('operation.module', $this->baseData('home', $shift) + [
             'timeline' => $timeline,
             'round' => $round,
+            'dosingState' => $dosing->currentState(),
+            'chemicalCount' => ChemicalStockCount::query()->where('shift_id', $shift->id)->first(),
+            'chemicalLocationsCount' => $chemicalStock->activeLocations()->count(),
         ]);
     }
 
@@ -363,7 +368,6 @@ class OperationsModuleController extends Controller
             'pendingActions' => OperationalAction::where('shift_id', $shift->id)->whereNotIn('status', ['completed', 'cancelled'])->count(),
             'openOccurrences' => Occurrence::where('shift_id', $shift->id)->whereNot('status', 'resolved')->count(),
             'activeAspersions' => Aspersion::where('shift_id', $shift->id)->where('status', 'active')->count(),
-            'equipment' => EquipmentStatus::where('shift_id', $shift->id)->latest('reported_at')->get(),
         ];
     }
 

@@ -31,12 +31,23 @@
                 <div><span class="eyebrow accent">TURNO {{ str_starts_with($shift->starts_at, '20:') ? 'NOTURNO' : 'DIURNO' }}</span><h2>Olá, {{ auth()->user()->name }}.</h2><p>Você está trabalhando com {{ $shift->members->where('id','!=',auth()->id())->pluck('name')->join(' + ') ?: 'a equipe do turno' }}.</p></div>
                 <div class="hero-status"><span class="live-dot"></span><b>Operação acompanhada</b><small>MySQL sincronizado</small></div>
             </section>
+            @if($dosingState['cycle'])
+                <a href="{{ route('dosing.index') }}" class="operator-hero dosing-active"><div><span class="eyebrow accent">DOSAGEM EM ANDAMENTO</span><h2>{{ $dosingState['cycle']->product_name }}</h2><p>Iniciada às {{ $dosingState['cycle']->started_at->format('H:i') }} • pH inicial {{ number_format($dosingState['cycle']->initial_value,2,',','.') }}</p></div><div class="hero-status"><b>Abrir controle</b><small>{{ $dosingState['cycle']->started_at->diffForHumans() }}</small></div></a>
+            @elseif($dosingState['alert'])
+                <a href="{{ route('dosing.index') }}" class="operator-hero dosing-warning"><div><span class="eyebrow">ATENÇÃO — CONDIÇÃO PARA DOSAGEM</span><h2>{{ $dosingState['alert']->rule->product_name }}</h2><p>pH {{ number_format($dosingState['alert']->trigger_value,2,',','.') }} • condição identificada {{ $dosingState['alert']->detected_at->diffForHumans() }}</p></div><div class="hero-status"><b>Abrir controle</b><small>{{ $dosingState['alert']->status === 'REMINDER' ? 'Ação ainda não registrada' : 'Verificar processo' }}</small></div></a>
+            @endif
             <section class="quick-grid">
                 <a href="{{ route('readings') }}"><span class="quick-icon blue">▦</span><b>Leituras</b><small>{{ $round ? 'Rodada '.$round->scheduled_at->format('H:i') : 'Sem rodada' }}</small><em>→</em></a>
                 <a href="{{ route('actions.show') }}"><span class="quick-icon amber">✓</span><b>Ações</b><small>{{ $pendingActions }} pendentes</small><em>→</em></a>
                 <a href="{{ route('aspersion') }}"><span class="quick-icon cyan">≈</span><b>Aspersão</b><small>{{ $activeAspersions ? $activeAspersions.' ativa(s)' : 'Nenhuma ativa' }}</small><em>→</em></a>
                 <a href="{{ route('occurrences') }}"><span class="quick-icon red">!</span><b>Ocorrências</b><small>{{ $openOccurrences }} abertas</small><em>→</em></a>
             </section>
+            @can('chemical_stock.count')
+                <section class="operator-hero">
+                    <div><span class="eyebrow accent">CONFERÊNCIA DE QUÍMICOS</span><h2>{{ $chemicalCount ? 'Concluída às '.$chemicalCount->counted_at->format('H:i') : 'Pendente' }}</h2><p>{{ $chemicalLocationsCount }} ponto(s) configurado(s) para conferência.</p></div>
+                    <div class="hero-status"><a class="button {{ $chemicalCount ? 'secondary' : 'primary' }}" href="{{ route('chemical-stock.count.form') }}">{{ $chemicalCount ? 'Ver confirmação' : 'Fazer conferência' }}</a>@can('chemical_stock.receive')<a href="{{ route('chemical-stock.receipt.form') }}">+ Registrar entrada</a>@endcan</div>
+                </section>
+            @endcan
             @if($round)
                 <section class="module-grid">
                     <article class="panel-card">
@@ -44,14 +55,6 @@
                         <div class="block-list">
                             @foreach($round->sections as $section)
                                 <div><i class="{{ $section->status }}"></i><span><b>{{ $section->label }}</b><small>{{ match($section->status){'completed'=>'Concluído','in_progress'=>'Em andamento',default=>'Pendente'} }}</small></span></div>
-                            @endforeach
-                        </div>
-                    </article>
-                    <article class="panel-card">
-                        <div class="panel-head"><div><h2>Equipamentos</h2><p>Situação atual do turno</p></div></div>
-                        <div class="list">
-                            @foreach($equipment as $item)
-                                <div class="list-row"><i class="equipment-dot {{ $item->status }}"></i><div><b>{{ $item->name }}</b><small>{{ $item->location }} @if($item->reading !== null)• {{ number_format($item->reading,1,',','.') }} {{ $item->unit }}@endif</small></div><span class="equipment-label {{ $item->status }}">{{ match($item->status){'operating'=>'Operando','attention'=>'Atenção',default=>'Parado'} }}</span></div>
                             @endforeach
                         </div>
                     </article>

@@ -37,6 +37,10 @@ class OperationModulesTest extends TestCase
         foreach (['/operacao', '/leituras', '/acoes', '/aspersao', '/ocorrencias', '/passagem-turno', '/mais'] as $uri) {
             $this->actingAs($operator)->get($uri)->assertOk();
         }
+
+        $this->actingAs($operator)->get('/operacao')
+            ->assertDontSee('Situação atual do turno');
+        $this->assertDatabaseCount('equipment', 7);
     }
 
     public function test_action_requires_checklist_and_photos_then_preserves_evidence(): void

@@ -41,6 +41,7 @@
             </section>
 
             <section class="master-grid">
+                @can('chemical_stock.view_balance')<article class="panel-card wide"><div class="panel-head"><div><h2>Estoque de químicos</h2><p>Resumo gerencial sem ampliar o painel</p></div><a href="{{ route('chemical-stock.dashboard') }}">Abrir estoque →</a></div><div id="chemical-stock-summary" class="kpi-grid"></div></article>@endcan
                 <article class="panel-card wide">
                     <div class="panel-head"><div><h2>Rodadas do turno</h2><p>Andamento por horário e por bloco</p></div><a href="{{ route('readings') }}">Abrir leituras →</a></div>
                     <div id="master-rounds" class="master-rounds"></div>

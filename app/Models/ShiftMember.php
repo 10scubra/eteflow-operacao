@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ShiftMember extends Model
 {
-    protected $fillable = ['shift_id', 'user_id', 'joined_at', 'left_at'];
+    protected $fillable = ['shift_id', 'user_id', 'employee_id', 'joined_at', 'left_at'];
 
     protected function casts(): array
     {
@@ -17,6 +17,11 @@ class ShiftMember extends Model
     public function shift(): BelongsTo
     {
         return $this->belongsTo(Shift::class);
+    }
+
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class);
     }
 
     public function user(): BelongsTo

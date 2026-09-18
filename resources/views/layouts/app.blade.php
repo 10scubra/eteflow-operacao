@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="{{ asset('assets/app.css') }}">
     <script type="module" src="{{ asset('assets/app.js') }}" defer></script>
 </head>
-<body data-page="@yield('page')" data-server-time="{{ now()->toIso8601String() }}">
+<body data-page="@yield('page')" data-server-time="{{ now()->toIso8601String() }}" data-user-role="{{ auth()->user()?->role }}">
     @yield('content')
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>

@@ -2,60 +2,56 @@
 
 namespace App\Actions;
 
-use App\Models\AuditLog;
 use App\Models\Shift;
 use App\Models\ShiftMember;
 use App\Models\User;
+use App\Services\AuditService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class UpdateShiftTeam
 {
+    public function __construct(private AuditService $audit) {}
+
     /** @param Collection<int, User> $operators */
     public function handle(Shift $shift, Collection $operators, User $changedBy): Shift
     {
         return DB::transaction(function () use ($shift, $operators, $changedBy) {
             $lockedShift = Shift::query()->lockForUpdate()->findOrFail($shift->id);
             $selectedIds = $operators->modelKeys();
-            $memberships = ShiftMember::query()
-                ->where('shift_id', $lockedShift->id)
-                ->lockForUpdate()
-                ->get();
-            $previousIds = $memberships->whereNull('left_at')->pluck('user_id')->values()->all();
+            $memberships = ShiftMember::query()->where('shift_id', $lockedShift->id)->lockForUpdate()->get();
+            $openMemberships = $memberships->whereNull('left_at');
+            $previousIds = $openMemberships->pluck('user_id')->filter()->values()->all();
 
-            foreach ($memberships->whereNull('left_at') as $membership) {
+            foreach ($openMemberships as $membership) {
                 if (! in_array($membership->user_id, $selectedIds, true)) {
                     $membership->update(['left_at' => now()]);
+                    $this->audit->record($membership, 'shift_membership.left', $changedBy, ['left_at' => null], ['left_at' => now()->toISOString()]);
                 }
             }
 
             foreach ($selectedIds as $operatorId) {
-                $membership = $memberships->firstWhere('user_id', $operatorId);
-
-                if ($membership) {
-                    if ($membership->left_at !== null) {
-                        $membership->update(['joined_at' => now(), 'left_at' => null]);
-                    }
-
+                if ($openMemberships->contains('user_id', $operatorId)) {
                     continue;
                 }
 
-                ShiftMember::create([
+                $operator = $operators->firstWhere('id', $operatorId);
+                $membership = ShiftMember::query()->create([
                     'shift_id' => $lockedShift->id,
                     'user_id' => $operatorId,
+                    'employee_id' => $operator?->employee_id,
                     'joined_at' => now(),
+                ]);
+                $action = $memberships->contains('user_id', $operatorId) ? 'shift_membership.reentered' : 'shift_membership.joined';
+                $this->audit->record($membership, $action, $changedBy, [], [
+                    'shift_id' => $lockedShift->id,
+                    'user_id' => $operatorId,
+                    'employee_id' => $operator?->employee_id,
+                    'joined_at' => now()->toISOString(),
                 ]);
             }
 
-            AuditLog::create([
-                'auditable_type' => Shift::class,
-                'auditable_id' => $lockedShift->id,
-                'action' => 'shift.team_updated',
-                'old_values' => ['operator_ids' => $previousIds],
-                'new_values' => ['operator_ids' => $selectedIds],
-                'user_id' => $changedBy->id,
-                'created_at' => now(),
-            ]);
+            $this->audit->record($lockedShift, 'shift.team_updated', $changedBy, ['operator_ids' => $previousIds], ['operator_ids' => $selectedIds]);
 
             return $lockedShift->fresh(['members', 'allMembers']);
         }, 3);

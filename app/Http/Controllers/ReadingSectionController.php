@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\SaveReadingSectionRequest;
-use App\Models\AuditLog;
-use App\Models\ParameterRule;
 use App\Models\ReadingSection;
+use App\Services\AuditService;
+use App\Services\OperationalConfigurationService;
 use App\Services\ReadingSectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,11 +14,12 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class ReadingSectionController extends Controller
 {
-    public function show(Request $request, ReadingSection $readingSection): JsonResponse
+    public function show(Request $request, ReadingSection $readingSection, OperationalConfigurationService $configuration): JsonResponse
     {
         $readingSection->load([
             'round.shift.members',
             'values.recordedBy',
+            'values.point',
             'startedBy',
             'completedBy',
             'lastEditedBy',
@@ -26,11 +27,7 @@ class ReadingSectionController extends Controller
         ]);
         $this->ensureAccess($request, $readingSection);
 
-        $rules = ParameterRule::query()
-            ->where('section_key', $readingSection->section_key)
-            ->where('is_active', true)
-            ->orderBy('id')
-            ->get();
+        $rules = $configuration->rulesForSection($readingSection)->each->load('points')->values();
 
         $previousSection = ReadingSection::query()
             ->where('section_key', $readingSection->section_key)
@@ -46,6 +43,9 @@ class ReadingSectionController extends Controller
             'rules' => $rules,
             'previous_values' => $previousSection?->values?->map(fn ($value) => [
                 'field_key' => $value->field_key,
+                'parameter_rule_id' => $value->parameter_rule_id,
+                'parameter_rule_point_id' => $value->parameter_rule_point_id,
+                'semantic_status' => $value->semantic_status,
                 'value_text' => $value->value_text,
                 'value_numeric' => $value->value_numeric,
                 'unit' => $value->unit,
@@ -55,13 +55,13 @@ class ReadingSectionController extends Controller
         ]);
     }
 
-    public function open(Request $request, ReadingSection $readingSection): JsonResponse
+    public function open(Request $request, ReadingSection $readingSection, AuditService $audit): JsonResponse
     {
         $request->validate(['force' => ['sometimes', 'boolean']]);
         $readingSection->load(['round.shift.members']);
         $this->ensureAccess($request, $readingSection);
 
-        $result = DB::transaction(function () use ($request, $readingSection) {
+        $result = DB::transaction(function () use ($request, $readingSection, $audit) {
             $section = ReadingSection::query()->with('editingBy')->lockForUpdate()->findOrFail($readingSection->id);
             $occupiedByAnother = $section->editing_by
                 && $section->editing_by !== $request->user()->id
@@ -82,15 +82,13 @@ class ReadingSectionController extends Controller
                     'editing_started_at' => now(),
                 ]);
 
-                AuditLog::create([
-                    'auditable_type' => ReadingSection::class,
-                    'auditable_id' => $section->id,
-                    'action' => $occupiedByAnother ? 'reading_section.opened_with_warning' : 'reading_section.opened',
-                    'old_values' => $previous,
-                    'new_values' => $section->only(['editing_by', 'editing_started_at']),
-                    'user_id' => $request->user()->id,
-                    'created_at' => now(),
-                ]);
+                $audit->record(
+                    $section,
+                    $occupiedByAnother ? 'reading_section.opened_with_warning' : 'reading_section.opened',
+                    $request->user(),
+                    $previous,
+                    $section->only(['editing_by', 'editing_started_at']),
+                );
             }
 
             return ['conflict' => false, 'section' => $section->fresh('editingBy')];

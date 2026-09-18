@@ -1,103 +1,17 @@
 @extends('layouts.app')
-
 @section('title', 'Equipe do turno • ETEFlow')
 @section('page', 'team')
-
 @section('content')
-<div class="app-shell">
-    @include('operation.navigation')
-
-    <main class="workspace">
-        <header class="page-header">
-            <div>
-                <span class="eyebrow">GESTÃO MASTER • TURNO {{ str_starts_with($shift->starts_at, '20:') ? 'NOTURNO' : 'DIURNO' }}</span>
-                <h1>Equipe do turno</h1>
-                <p>{{ substr($shift->starts_at, 0, 5) }}–{{ substr($shift->ends_at, 0, 5) }} • {{ $shift->shift_date->format('d/m/Y') }}</p>
-            </div>
-            <div class="server-clock"><span>HORÁRIO DO SERVIDOR</span><strong id="live-clock">--:--:--</strong><small id="live-date"></small></div>
-        </header>
-
-        @if(session('success'))
-            <div class="success-alert">{{ session('success') }}</div>
-        @endif
-        @if($errors->any())
-            <div class="form-alert">{{ $errors->first() }}</div>
-        @endif
-
-        <section class="team-layout">
-            <article class="panel-card">
-                <div class="panel-head">
-                    <div>
-                        <span class="eyebrow accent">EQUIPE ATIVA</span>
-                        <h2>{{ $shift->members->pluck('name')->join(' + ') ?: 'Nenhum operador' }}</h2>
-                        <p>Os integrantes compartilham leituras, ações e ocorrências deste turno.</p>
-                    </div>
-                </div>
-
-                <form method="POST" action="{{ route('team.update') }}" class="team-form">
-                    @csrf
-                    @method('PUT')
-
-                    <fieldset>
-                        <legend>Selecione quem está trabalhando agora</legend>
-                        <div class="operator-options">
-                            @forelse($operators as $operator)
-                                <label class="operator-choice">
-                                    <input
-                                        type="checkbox"
-                                        name="operator_ids[]"
-                                        value="{{ $operator->id }}"
-                                        @checked(in_array($operator->id, old('operator_ids', $shift->members->modelKeys()), true))
-                                    >
-                                    <span class="avatar">{{ strtoupper(substr($operator->name, 0, 2)) }}</span>
-                                    <span>
-                                        <b>{{ $operator->name }}</b>
-                                        <small>{{ $operator->username }} • Operador ativo</small>
-                                    </span>
-                                    <i aria-hidden="true">✓</i>
-                                </label>
-                            @empty
-                                <div class="empty-state">Não há operadores ativos disponíveis.</div>
-                            @endforelse
-                        </div>
-                    </fieldset>
-
-                    <div class="team-note">
-                        <b>Histórico preservado</b>
-                        <p>Quem sair da equipe deixa de editar este turno, mas suas leituras e atividades continuam com autoria e horário.</p>
-                    </div>
-
-                    <button class="button primary large" @disabled($operators->isEmpty())>Salvar equipe do turno</button>
-                </form>
-            </article>
-
-            <article class="panel-card">
-                <div class="panel-head">
-                    <div>
-                        <h2>Participação neste turno</h2>
-                        <p>Entradas e saídas registradas</p>
-                    </div>
-                </div>
-                <div class="team-history">
-                    @forelse($shift->allMembers->sortBy('pivot.joined_at') as $member)
-                        <div class="list-row">
-                            <span class="avatar">{{ strtoupper(substr($member->name, 0, 2)) }}</span>
-                            <div>
-                                <b>{{ $member->name }}</b>
-                                <small>Entrou {{ $member->pivot->joined_at ? \Illuminate\Support\Carbon::parse($member->pivot->joined_at)->format('d/m • H:i') : 'sem horário' }}</small>
-                            </div>
-                            @if($member->pivot->left_at)
-                                <span class="equipment-label stopped">Saiu {{ \Illuminate\Support\Carbon::parse($member->pivot->left_at)->format('H:i') }}</span>
-                            @else
-                                <span class="equipment-label operating">Na equipe</span>
-                            @endif
-                        </div>
-                    @empty
-                        <div class="empty-state">A participação será registrada ao salvar a equipe.</div>
-                    @endforelse
-                </div>
-            </article>
-        </section>
-    </main>
-</div>
+<div class="app-shell">@include('operation.navigation')
+<main class="workspace admin-workspace">
+<header class="page-header"><div><span class="eyebrow">ADMINISTRAÇÃO • TURNO {{ str_starts_with($shift->starts_at,'20:')?'NOTURNO':'DIURNO' }}</span><h1>Equipe do turno</h1><p>{{ substr($shift->starts_at,0,5) }}–{{ substr($shift->ends_at,0,5) }} • {{ $shift->shift_date->format('d/m/Y') }}</p></div><div class="server-clock"><span>HORÁRIO DO SERVIDOR</span><strong id="live-clock">--:--:--</strong><small id="live-date"></small></div></header>
+@if(session('success'))<div class="success-alert">{{ session('success') }}</div>@endif @if($errors->any())<div class="form-alert">{{ $errors->first() }}</div>@endif
+<section class="team-layout">
+<article class="panel-card"><div class="panel-head"><div><span class="eyebrow accent">PARTICIPANTES ATUAIS</span><h2>{{ $shift->participations->whereNull('left_at')->map(fn($item)=>$item->employee?->display_name ?? $item->user?->name)->filter()->join(' + ') ?: 'Nenhum participante' }}</h2><p>Cada pessoa mantém sua autoria individual nas atividades.</p></div></div>
+<div class="active-members">@forelse($shift->participations->whereNull('left_at') as $membership)@php($name=$membership->employee?->display_name ?? $membership->user?->name ?? 'Participante legado')<article class="member-interval"><div><span class="avatar">{{ strtoupper(substr($name,0,2)) }}</span><span><b>{{ $name }}</b><small>{{ $membership->joined_at?->format('H:i') ?? 'sem horário' }} → atual</small></span></div><div class="member-actions"><form method="POST" action="{{ route('team.leave',$membership) }}">@csrf @method('PUT')<button class="button secondary">Registrar saída</button></form>@if($employees->isNotEmpty())<details><summary class="button secondary">Substituir</summary><form method="POST" action="{{ route('team.substitute',$membership) }}" class="inline-substitute">@csrf<label class="field"><span>Novo operador</span><select name="employee_id" required>@foreach($employees as $employee)<option value="{{ $employee->id }}">{{ $employee->display_name }}</option>@endforeach</select></label><button class="button primary">Confirmar agora</button></form></details>@endif</div></article>@empty<div class="empty-state">Nenhum participante ativo.</div>@endforelse</div>
+@if($employees->isNotEmpty())<form method="POST" action="{{ route('team.join') }}" class="join-form">@csrf<label class="field"><span>Adicionar participante</span><select name="employee_id" required><option value="">Selecione um colaborador ativo</option>@foreach($employees as $employee)<option value="{{ $employee->id }}">{{ $employee->display_name }}{{ $employee->user ? ' • '.$employee->user->username : '' }}</option>@endforeach</select></label><button class="button primary large">Registrar entrada agora</button></form>@else<div class="team-note"><b>Cadastre colaboradores ativos</b><p>Participações antigas continuam visíveis. Novas entradas utilizam preferencialmente Employee.</p></div>@endif
+</article>
+<article class="panel-card"><div class="panel-head"><div><h2>Intervalos do turno</h2><p>Histórico cronológico preservado</p></div></div><div class="team-history">@forelse($shift->participations->sortBy('joined_at') as $membership)@php($name=$membership->employee?->display_name ?? $membership->user?->name ?? 'Participante legado')<div class="list-row"><span class="avatar">{{ strtoupper(substr($name,0,2)) }}</span><div><b>{{ $name }}</b><small>{{ $membership->joined_at?->format('H:i') ?? 'sem horário' }} → {{ $membership->left_at?->format('H:i') ?? 'atual' }}</small></div><span class="equipment-label {{ $membership->left_at?'stopped':'operating' }}">{{ $membership->left_at?'Encerrado':'Na equipe' }}</span></div>@empty<div class="empty-state">Nenhuma participação registrada.</div>@endforelse</div></article>
+</section>
+</main></div>
 @endsection

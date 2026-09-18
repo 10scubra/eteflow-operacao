@@ -9,11 +9,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Shift extends Model
 {
-    protected $fillable = ['shift_date', 'starts_at', 'ends_at', 'status', 'notes', 'closed_by', 'closed_at'];
+    protected $fillable = ['operational_unit_id', 'shift_template_id', 'shift_date', 'starts_at', 'ends_at', 'status', 'notes', 'closed_by', 'closed_at'];
 
     protected function casts(): array
     {
         return ['shift_date' => 'date', 'closed_at' => 'datetime'];
+    }
+
+    public function operationalUnit(): BelongsTo
+    {
+        return $this->belongsTo(OperationalUnit::class);
+    }
+
+    public function template(): BelongsTo
+    {
+        return $this->belongsTo(ShiftTemplate::class, 'shift_template_id');
     }
 
     public function members(): BelongsToMany
@@ -34,6 +44,11 @@ class Shift extends Model
     public function rounds(): HasMany
     {
         return $this->hasMany(ReadingRound::class);
+    }
+
+    public function participations(): HasMany
+    {
+        return $this->hasMany(ShiftMember::class);
     }
 
     public function closedBy(): BelongsTo

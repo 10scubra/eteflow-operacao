@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\PermissionService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -9,7 +10,7 @@ class UpdateShiftTeamRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->is_active === true && $this->user()?->role === 'master';
+        return $this->user() !== null && app(PermissionService::class)->allows($this->user(), 'shifts.manage_team');
     }
 
     public function rules(): array

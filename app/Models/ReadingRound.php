@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ReadingRound extends Model
 {
-    protected $fillable = ['shift_id', 'scheduled_at', 'status'];
+    protected $fillable = ['shift_id', 'reading_template_version_id', 'scheduled_at', 'status'];
 
     protected function casts(): array
     {
@@ -23,5 +23,10 @@ class ReadingRound extends Model
     public function sections(): HasMany
     {
         return $this->hasMany(ReadingSection::class);
+    }
+
+    public function templateVersion(): BelongsTo
+    {
+        return $this->belongsTo(ReadingTemplateVersion::class, 'reading_template_version_id');
     }
 }

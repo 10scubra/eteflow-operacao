@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Aspersion;
 use App\Models\AspersionPoint;
 use App\Models\User;
+use App\Services\DailyOperationService;
 use Database\Seeders\EteFlowSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -131,7 +132,9 @@ class PublicAspersionTest extends TestCase
         $master = User::query()->where('username', 'master.teste')->firstOrFail();
         $point = AspersionPoint::query()->firstOrFail();
         $aspersion = Aspersion::query()->where('aspersion_point_id', $point->id)->firstOrFail();
+        $dayShift = app(DailyOperationService::class)->ensure(now()->startOfDay()->setHour(10));
         $aspersion->update([
+            'shift_id' => $dayShift->id,
             'status' => 'completed',
             'final_reading' => 1260,
             'total_consumption' => 10,

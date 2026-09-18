@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ReadingRound;
 use App\Models\ReadingSection;
+use App\Models\ReadingSectionDefinition;
 use App\Models\Shift;
 use App\Models\User;
 use Carbon\Carbon;
@@ -11,40 +12,24 @@ use Carbon\CarbonInterface;
 
 class DailyOperationService
 {
-    public const DAY_ROUND_TIMES = ['08:30', '10:30', '12:30', '14:30', '16:30', '18:30'];
-
-    public const NIGHT_ROUND_TIMES = ['20:30', '22:30', '00:30', '02:30', '04:30', '06:30'];
-
-    public const SECTIONS = [
-        'process' => 'Processo',
-        'flotators' => 'Flotadores',
-        'decanter' => 'Decanter',
-        'totalizers' => 'Totalizadores',
-        'chemicals' => 'Produtos químicos',
-        'observations' => 'Observações',
-    ];
+    public function __construct(private OperationalConfigurationService $configuration, private ReadingFrequencyService $frequencies) {}
 
     public function ensure(?CarbonInterface $moment = null): Shift
     {
         $now = ($moment ? Carbon::instance($moment) : now())->copy()->timezone(config('app.timezone'));
-        $isDay = $now->hour >= 8 && $now->hour < 20;
-
-        // Entre 00:00 e 07:59 o turno noturno continua pertencendo à data
-        // em que começou, evitando criar outro turno na virada do dia.
-        $operationalDate = (! $isDay && $now->hour < 8)
-            ? $now->copy()->subDay()
-            : $now->copy();
-
-        $start = $operationalDate->copy()->setTime($isDay ? 8 : 20, 0);
-        $end = $start->copy()->addHours(12);
-        $startTime = $isDay ? '08:00:00' : '20:00:00';
-        $endTime = $isDay ? '20:00:00' : '08:00:00';
-        $label = $isDay ? 'diurno' : 'noturno';
+        $configuration = $this->configuration->shiftAt($now);
+        $operationalDate = $configuration['operational_date'];
+        $start = $configuration['starts_at'];
+        $end = $configuration['ends_at'];
+        $startTime = $start->format('H:i:s');
+        $endTime = $end->format('H:i:s');
+        $label = $configuration['template']?->name ?? ($startTime === '20:00:00' ? 'noturno' : 'diurno');
 
         $shift = Shift::query()->firstOrCreate(
-            ['shift_date' => $operationalDate->toDateString(), 'starts_at' => $startTime],
-            ['ends_at' => $endTime, 'status' => 'active', 'notes' => "Turno {$label} gerado automaticamente."],
+            ['shift_date' => $operationalDate, 'starts_at' => $startTime],
+            ['shift_template_id' => $configuration['template']?->id, 'ends_at' => $endTime, 'status' => 'active', 'notes' => "Turno {$label} gerado automaticamente."],
         );
+        $readingTemplateVersion = $this->configuration->publishedReadingTemplate();
 
         Shift::query()
             ->whereKeyNot($shift->id)
@@ -68,20 +53,29 @@ class DailyOperationService
             }
         }
 
-        $roundTimes = $isDay ? self::DAY_ROUND_TIMES : self::NIGHT_ROUND_TIMES;
+        $scheduledMoments = collect($configuration['round_offsets'])
+            ->map(fn (int $offsetMinutes) => $start->copy()->addMinutes($offsetMinutes));
+        if ($readingTemplateVersion) {
+            $scheduledMoments = $scheduledMoments->merge($this->frequencies->supplementalMoments($readingTemplateVersion, $shift));
+        }
 
-        foreach ($roundTimes as $index => $time) {
-            // A soma a partir do início mantém 00:30–06:30 no dia seguinte.
-            $scheduledAt = $start->copy()->addMinutes(30)->addHours($index * 2);
+        foreach ($scheduledMoments->unique(fn ($moment) => $moment->toDateTimeString())->sort() as $scheduledAt) {
             $round = ReadingRound::query()->firstOrCreate(
                 ['shift_id' => $shift->id, 'scheduled_at' => $scheduledAt],
-                ['status' => 'pending'],
+                ['reading_template_version_id' => $readingTemplateVersion?->id, 'status' => 'pending'],
             );
 
-            foreach (self::SECTIONS as $key => $sectionLabel) {
+            foreach ($this->configuration->sectionsAt($scheduledAt, $round->templateVersion ?? $readingTemplateVersion) as $section) {
+                if ($section['id'] && ! $this->frequencies->sectionApplies(ReadingSectionDefinition::findOrFail($section['id']), $round)) {
+                    continue;
+                }
                 ReadingSection::query()->firstOrCreate(
-                    ['reading_round_id' => $round->id, 'section_key' => $key],
-                    ['label' => $sectionLabel, 'status' => 'pending'],
+                    ['reading_round_id' => $round->id, 'section_key' => $section['key']],
+                    [
+                        'reading_section_definition_id' => $section['id'],
+                        'label' => $section['label'],
+                        'status' => 'pending',
+                    ],
                 );
             }
         }

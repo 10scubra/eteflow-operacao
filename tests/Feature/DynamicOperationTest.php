@@ -21,7 +21,7 @@ class DynamicOperationTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_day_shift_has_six_rounds_and_correct_timeline(): void
+    public function test_day_shift_has_general_and_totalizer_rounds_with_correct_timeline(): void
     {
         Carbon::setTestNow('2026-09-09 08:00:00');
         $this->seed(EteFlowSeeder::class);
@@ -35,7 +35,7 @@ class DynamicOperationTest extends TestCase
         $this->assertNull($before['current']);
         $this->assertSame('08:30', $before['next']->scheduled_at->format('H:i'));
         $this->assertSame(
-            ['08:30', '10:30', '12:30', '14:30', '16:30', '18:30'],
+            ['08:30', '09:00', '10:30', '12:00', '12:30', '14:30', '16:30', '18:30'],
             $before['rounds']->map->scheduled_at->map->format('H:i')->all(),
         );
 
@@ -93,8 +93,8 @@ class DynamicOperationTest extends TestCase
 
         $this->assertNotSame($first->id, $second->id);
         $this->assertSame(2, Shift::count());
-        $this->assertSame(6, $first->rounds()->count());
-        $this->assertSame(6, $second->rounds()->count());
+        $this->assertSame(8, $first->rounds()->count());
+        $this->assertSame(8, $second->rounds()->count());
     }
 
     public function test_snapshot_uses_server_time_current_round_and_shift_name(): void
